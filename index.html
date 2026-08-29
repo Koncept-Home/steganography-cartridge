@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steganography Cartridge</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: #ffffff;
+            color: #24292e;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        body.dark-mode {
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            border-bottom: 1px solid #e1e4e8;
+            padding-bottom: 16px;
+        }
+
+        body.dark-mode header {
+            border-bottom-color: #30363d;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+
+        .theme-toggle {
+            background: none;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 18px;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+
+        body.dark-mode .theme-toggle {
+            border-color: #30363d;
+        }
+
+        .theme-toggle:hover {
+            background-color: #f6f8fa;
+        }
+
+        body.dark-mode .theme-toggle:hover {
+            background-color: #161b22;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .section {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.7;
+        }
+
+        .upload-area {
+            border: 2px dashed #e1e4e8;
+            border-radius: 8px;
+            padding: 32px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #f6f8fa;
+        }
+
+        body.dark-mode .upload-area {
+            border-color: #30363d;
+            background: #0d1117;
+        }
+
+        .upload-area:hover {
+            border-color: #1f6feb;
+            background: #f0f6fc;
+        }
+
+        body.dark-mode .upload-area:hover {
+            border-color: #58a6ff;
+            background: #0d1117;
+        }
+
+        .upload-area.dragover {
+            border-color: #1f6feb;
+            background: #f0f6fc;
+        }
+
+        body.dark-mode .upload-area.dragover {
+            border-color: #58a6ff;
+            background: #161b22;
+        }
+
+        .upload-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+        }
+
+        .upload-text {
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .upload-subtext {
+            font-size: 12px;
+            opacity: 0.6;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-item {
+            background: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        body.dark-mode .file-item {
+            background: #161b22;
+            border-color: #30363d;
+        }
+
+        .file-name {
+            flex: 1;
+            word-break: break-all;
+            margin-right: 12px;
+        }
+
+        .file-size {
+            opacity: 0.6;
+            white-space: nowrap;
+            font-size: 12px;
+            margin-right: 12px;
+        }
+
+        .remove-btn {
+            background: none;
+            border: none;
+            color: #d1242f;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 4px;
+            transition: opacity 0.2s;
+        }
+
+        .remove-btn:hover {
+            opacity: 0.7;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="range"],
+        select {
+            padding: 8px 12px;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 13px;
+            background: #ffffff;
+            color: #24292e;
+            transition: border-color 0.2s;
+        }
+
+        body.dark-mode input[type="text"],
+        body.dark-mode select {
+            background: #0d1117;
+            color: #c9d1d9;
+            border-color: #30363d;
+        }
+
+        input[type="text"]:focus,
+        input[type="range"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #1f6feb;
+            box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.1);
+        }
+
+        body.dark-mode input[type="text"]:focus,
+        body.dark-mode select:focus {
+            border-color: #58a6ff;
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        button {
+            padding: 8px 16px;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #f6f8fa;
+            color: #24292e;
+        }
+
+        body.dark-mode button {
+            background: #161b22;
+            color: #c9d1d9;
+            border-color: #30363d;
+        }
+
+        button:hover {
+            background-color: #f3f6f8;
+            border-color: #d1d9e0;
+        }
+
+        body.dark-mode button:hover {
+            background-color: #0d1117;
+            border-color: #58a6ff;
+        }
+
+        .btn-primary {
+            background: #1f6feb;
+            color: #ffffff;
+            border-color: #1f6feb;
+        }
+
+        .btn-primary:hover {
+            background: #388bfd;
+            border-color: #388bfd;
+        }
+
+        .btn-primary:disabled {
+            background: #8c959f;
+            border-color: #8c959f;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .btn-success {
+            background: #2ea043;
+            color: #ffffff;
+            border-color: #2ea043;
+        }
+
+        .btn-success:hover {
+            background: #26843b;
+            border-color: #26843b;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #e1e4e8;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        body.dark-mode .progress-bar {
+            background: #30363d;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #1f6feb;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            font-size: 12px;
+            opacity: 0.6;
+            margin-top: 4px;
+            text-align: right;
+        }
+
+        .alert {
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            border: 1px solid;
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+        }
+
+        .alert-success {
+            background: #f0f6fc;
+            border-color: #1f6feb;
+            color: #0969da;
+        }
+
+        body.dark-mode .alert-success {
+            background: #0d1117;
+            border-color: #58a6ff;
+            color: #79c0ff;
+        }
+
+        .alert-error {
+            background: #ffebe9;
+            border-color: #da3633;
+            color: #82071e;
+        }
+
+        body.dark-mode .alert-error {
+            background: #0d1117;
+            border-color: #f85149;
+            color: #f85149;
+        }
+
+        .alert-warning {
+            background: #fff8c5;
+            border-color: #d29922;
+            color: #7d4e00;
+        }
+
+        body.dark-mode .alert-warning {
+            background: #0d1117;
+            border-color: #d29922;
+            color: #d29922;
+        }
+
+        .range-value {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 4px;
+        }
+
+        .range-display {
+            font-size: 12px;
+            font-weight: 500;
+            background: #f6f8fa;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        body.dark-mode .range-display {
+            background: #161b22;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .stat {
+            background: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        body.dark-mode .stat {
+            background: #161b22;
+            border-color: #30363d;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            opacity: 0.6;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-value {
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 4px;
+            word-break: break-all;
+        }
+
+        .divider {
+            height: 1px;
+            background: #e1e4e8;
+            margin: 24px 0;
+        }
+
+        body.dark-mode .divider {
+            background: #30363d;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .extractor-section {
+            background: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+
+        body.dark-mode .extractor-section {
+            background: #161b22;
+            border-color: #30363d;
+        }
+
+        .tab-buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid #e1e4e8;
+            padding-bottom: 8px;
+        }
+
+        body.dark-mode .tab-buttons {
+            border-bottom-color: #30363d;
+        }
+
+        .tab-btn {
+            padding: 8px 12px;
+            background: none;
+            border: none;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            color: #57606a;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -8px;
+            transition: all 0.2s;
+        }
+
+        body.dark-mode .tab-btn {
+            color: #8b949e;
+        }
+
+        .tab-btn.active {
+            color: #1f6feb;
+            border-bottom-color: #1f6feb;
+        }
+
+        body.dark-mode .tab-btn.active {
+            color: #58a6ff;
+            border-bottom-color: #58a6ff;
+        }
+
+        .hidden-section {
+            display: none;
+        }
+
+        .code-block {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #c9d1d9;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .copy-btn {
+            margin-top: 8px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">🔐 Steganography</div>
+            <button class="theme-toggle" id="themeToggle">🌙</button>
+        </header>
+
+        <div class="content">
+            <!-- Encoder Section -->
+            <div class="section">
+                <div class="section-title">Encode</div>
+
+                <!-- Data File Upload -->
+                <div class="input-group">
+                    <label>Data File (to embed)</label>
+                    <div class="upload-area" id="dataUploadArea">
+                        <div class="upload-icon">📄</div>
+                        <div class="upload-text">Choose file or drag here</div>
+                        <div class="upload-subtext">Any file type supported</div>
+                    </div>
+                    <input type="file" id="dataFileInput" />
+                    <div id="dataFileDisplay"></div>
+                </div>
+
+                <!-- Cover Image Upload -->
+                <div class="input-group">
+                    <label>Cover Image (PNG)</label>
+                    <div class="upload-area" id="coverUploadArea">
+                        <div class="upload-icon">🖼️</div>
+                        <div class="upload-text">Choose image or drag here</div>
+                        <div class="upload-subtext">PNG format recommended</div>
+                    </div>
+                    <input type="file" id="coverFileInput" accept="image/*" />
+                    <div id="coverFileDisplay"></div>
+                </div>
+
+                <!-- Compression Level -->
+                <div class="input-group">
+                    <label>Compression Level</label>
+                    <input type="range" id="compressionLevel" min="0" max="9" value="6" />
+                    <div class="range-value">
+                        <span>0 (none)</span>
+                        <span class="range-display" id="compressionDisplay">6</span>
+                        <span>9 (max)</span>
+                    </div>
+                </div>
+
+                <!-- Stats -->
+                <div class="stats" id="encoderStats" style="display: none;">
+                    <div class="stat">
+                        <div class="stat-label">Data Size</div>
+                        <div class="stat-value" id="dataSizeStat">-</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Image Capacity</div>
+                        <div class="stat-value" id="capacityStat">-</div>
+                    </div>
+                </div>
+
+                <!-- Encode Button -->
+                <div class="button-group">
+                    <button class="btn-primary" id="encodeBtn" disabled>Encode & Generate</button>
+                </div>
+
+                <!-- Progress -->
+                <div id="encodeProgress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="encodeProgressFill"></div>
+                    </div>
+                    <div class="progress-text" id="encodeProgressText">0%</div>
+                </div>
+
+                <!-- Messages -->
+                <div id="encodeMessages"></div>
+            </div>
+
+            <!-- Decoder Section -->
+            <div class="section">
+                <div class="section-title">Decode</div>
+
+                <!-- Stego Image Upload -->
+                <div class="input-group">
+                    <label>Steganographic PNG</label>
+                    <div class="upload-area" id="stegoUploadArea">
+                        <div class="upload-icon">🔍</div>
+                        <div class="upload-text">Choose image or drag here</div>
+                        <div class="upload-subtext">PNG with hidden data</div>
+                    </div>
+                    <input type="file" id="stegoFileInput" accept="image/png" />
+                    <div id="stegoFileDisplay"></div>
+                </div>
+
+                <!-- Decode Button -->
+                <div class="button-group">
+                    <button class="btn-primary" id="decodeBtn" disabled>Decode</button>
+                </div>
+
+                <!-- Progress -->
+                <div id="decodeProgress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="decodeProgressFill"></div>
+                    </div>
+                    <div class="progress-text" id="decodeProgressText">0%</div>
+                </div>
+
+                <!-- Messages -->
+                <div id="decodeMessages"></div>
+
+                <!-- Extractor Tabs -->
+                <div id="extractorContainer" style="display: none;">
+                    <div class="divider"></div>
+                    <div class="extractor-section">
+                        <div class="tab-buttons">
+                            <button class="tab-btn active" data-tab="info">Info</button>
+                            <button class="tab-btn" data-tab="inject">Inject & Run</button>
+                            <button class="tab-btn" data-tab="download">Download</button>
+                        </div>
+
+                        <!-- Info Tab -->
+                        <div id="info-tab" class="tab-content">
+                            <div class="stats">
+                                <div class="stat">
+                                    <div class="stat-label">File Name</div>
+                                    <div class="stat-value" id="extractedFileName">-</div>
+                                </div>
+                                <div class="stat">
+                                    <div class="stat-label">File Size</div>
+                                    <div class="stat-value" id="extractedFileSize">-</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Inject Tab -->
+                        <div id="inject-tab" class="tab-content hidden-section">
+                            <div class="input-group">
+                                <label>Target Page</label>
+                                <select id="injectTarget">
+                                    <option value="new">Open in new window</option>
+                                    <option value="blank">Open in about:blank</option>
+                                    <option value="current">Replace current page</option>
+                                </select>
+                            </div>
+                            <button class="btn-success" id="injectBtn">Inject & Execute</button>
+                            <div id="injectMessages"></div>
+                        </div>
+
+                        <!-- Download Tab -->
+                        <div id="download-tab" class="tab-content hidden-section">
+                            <button class="btn-primary" id="downloadBtn" style="width: 100%;">Download File</button>
+                            <div id="downloadMessages"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="steganography.js"></script>
+</body>
+</html>
