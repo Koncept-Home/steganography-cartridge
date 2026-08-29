@@ -706,7 +706,7 @@
         <!-- Info -->
         <div class="sidebar-footer">
             <div class="info-box" id="modeInfo">
-                Encode files up to 10GB into PNG cartridges using LSB steganography. Enable auto-resize to dynamically adjust cover image resolution.
+                Encode files up to 10GB into PNG cartridges using LSB steganography. Supports chunked processing for large files. Auto-resize automatically scales the cover image to fit any file size.
             </div>
         </div>
     </div>
@@ -861,8 +861,11 @@
     </div>
 
     <script>
-        // Steganography Engine
+        // Steganography Engine with Chunked Processing
         class SteganographyEngine {
+            static CHUNK_SIZE = 1024 * 1024; // 1MB chunks for reading
+            static MAX_CANVAS_DIMENSION = 65536; // Max dimension per browser limit
+
             static formatBytes(bytes) {
                 if (bytes === 0) return '0 B';
                 const k = 1024;
@@ -877,8 +880,13 @@
                 const bitsNeeded = (dataSize + 4) * 8;
                 const pixelsNeeded = Math.ceil(bitsNeeded / 4);
                 
-                // Calculate minimum resolution (square root for roughly square image)
-                const minDimension = Math.ceil(Math.sqrt(pixelsNeeded));
+                // Calculate minimum dimension with max canvas limit
+                let minDimension = Math.ceil(Math.sqrt(pixelsNeeded));
+                
+                // If exceeds browser limit, use max and calculate pixels per dimension
+                if (minDimension > this.MAX_CANVAS_DIMENSION) {
+                    minDimension = this.MAX_CANVAS_DIMENSION;
+                }
                 
                 return { width: minDimension, height: minDimension, pixelsNeeded };
             }
@@ -892,7 +900,41 @@
                 return canvas;
             }
 
-            static async encode(dataArray, coverImage, compressionLevel, autoResize, onProgress) {
+            static async readFileInChunks(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    const chunks = [];
+                    let offset = 0;
+
+                    const readChunk = () => {
+                        const slice = file.slice(offset, offset + this.CHUNK_SIZE);
+                        reader.onload = (e) => {
+                            chunks.push(new Uint8Array(e.target.result));
+                            offset += this.CHUNK_SIZE;
+                            
+                            if (offset < file.size) {
+                                readChunk();
+                            } else {
+                                // Combine all chunks
+                                const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+                                const combined = new Uint8Array(totalLength);
+                                let position = 0;
+                                chunks.forEach(chunk => {
+                                    combined.set(chunk, position);
+                                    position += chunk.length;
+                                });
+                                resolve(combined);
+                            }
+                        };
+                        reader.onerror = () => reject(new Error('Failed to read file'));
+                        reader.readAsArrayBuffer(slice);
+                    };
+
+                    readChunk();
+                });
+            }
+
+            static async encodeChunked(dataArray, coverImage, compressionLevel, autoResize, onProgress) {
                 return new Promise((resolve, reject) => {
                     setTimeout(async () => {
                         try {
@@ -911,8 +953,8 @@
                                 
                                 // Check if we need to resize
                                 if (autoResize && (img.width < required.width || img.height < required.height)) {
-                                    finalWidth = Math.max(img.width, required.width);
-                                    finalHeight = Math.max(img.height, required.height);
+                                    finalWidth = required.width;
+                                    finalHeight = required.height;
                                     finalCanvas = this.resizeCoverImage(img, finalWidth, finalHeight);
                                 } else {
                                     finalCanvas.width = img.width;
@@ -950,9 +992,9 @@
                                 
                                 // LSB encoding with chunked progress
                                 let bitIndex = 0;
-                                const totalBits = fullData.length * 8;
+                                const totalBytes = fullData.length;
                                 
-                                for (let i = 0; i < fullData.length; i++) {
+                                for (let i = 0; i < totalBytes; i++) {
                                     const byte = fullData[i];
                                     for (let j = 0; j < 8; j++) {
                                         const bit = (byte >> j) & 1;
@@ -966,8 +1008,8 @@
                                         bitIndex++;
                                     }
                                     
-                                    if (i % 10000 === 0) {
-                                        const progress = 30 + (i / fullData.length) * 60;
+                                    if (i % 100000 === 0) {
+                                        const progress = 30 + (i / totalBytes) * 60;
                                         onProgress(Math.min(progress, 89));
                                     }
                                 }
@@ -990,7 +1032,7 @@
                 });
             }
 
-            static async decode(stegoImage, onProgress) {
+            static async decodeChunked(stegoImage, onProgress) {
                 return new Promise((resolve, reject) => {
                     setTimeout(() => {
                         try {
@@ -1053,7 +1095,7 @@
                                     }
                                     extractedData[i] = byte;
                                     
-                                    if (i % 10000 === 0) {
+                                    if (i % 100000 === 0) {
                                         const progress = 20 + (i / fileSize) * 75;
                                         onProgress(Math.min(progress, 95));
                                     }
@@ -1284,8 +1326,8 @@
                     let resizedWidth = img.width;
                     let resizedHeight = img.height;
                     if (autoResize && (img.width < required.width || img.height < required.height)) {
-                        resizedWidth = Math.max(img.width, required.width);
-                        resizedHeight = Math.max(img.height, required.height);
+                        resizedWidth = required.width;
+                        resizedHeight = required.height;
                     }
                     
                     document.getElementById('dataSizeStat').textContent = SteganographyEngine.formatBytes(this.dataFile.size);
@@ -1313,11 +1355,12 @@
                 progressDiv.style.display = 'block';
                 
                 try {
-                    const dataArray = new Uint8Array(await this.dataFile.arrayBuffer());
+                    // Read file in chunks
+                    const dataArray = await SteganographyEngine.readFileInChunks(this.dataFile);
                     const compressionLevel = parseInt(document.getElementById('compressionLevel').value);
                     const autoResize = document.getElementById('autoResizeCheckbox').checked;
                     
-                    const result = await SteganographyEngine.encode(
+                    const result = await SteganographyEngine.encodeChunked(
                         dataArray,
                         this.coverImage,
                         compressionLevel,
@@ -1367,7 +1410,7 @@
                 progressDiv.style.display = 'block';
                 
                 try {
-                    this.extractedData = await SteganographyEngine.decode(
+                    this.extractedData = await SteganographyEngine.decodeChunked(
                         this.stegoImage,
                         (progress) => {
                             const fill = document.getElementById('decodeProgressFill');
@@ -1505,7 +1548,7 @@
                 interpreterSection.style.display = 'none';
                 compilerSettings.style.display = 'block';
                 document.getElementById('headerTitle').textContent = 'Compiler';
-                document.getElementById('modeInfo').textContent = 'Encode files up to 10GB into PNG cartridges using LSB steganography. Enable auto-resize to dynamically adjust cover image resolution.';
+                document.getElementById('modeInfo').textContent = 'Encode files up to 10GB into PNG cartridges using LSB steganography. Supports chunked processing for large files. Auto-resize automatically scales the cover image to fit any file size.';
             } else {
                 compilerSection.style.display = 'none';
                 interpreterSection.style.display = 'flex';
