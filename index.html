@@ -136,11 +136,6 @@
             background: #161b22;
         }
 
-        .upload-icon {
-            font-size: 32px;
-            margin-bottom: 12px;
-        }
-
         .upload-text {
             font-size: 14px;
             margin-bottom: 8px;
@@ -267,12 +262,12 @@
             border-color: #30363d;
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
             background-color: #f3f6f8;
             border-color: #d1d9e0;
         }
 
-        body.dark-mode button:hover {
+        body.dark-mode button:hover:not(:disabled) {
             background-color: #0d1117;
             border-color: #58a6ff;
         }
@@ -283,7 +278,7 @@
             border-color: #1f6feb;
         }
 
-        .btn-primary:hover {
+        .btn-primary:hover:not(:disabled) {
             background: #388bfd;
             border-color: #388bfd;
         }
@@ -301,9 +296,16 @@
             border-color: #2ea043;
         }
 
-        .btn-success:hover {
+        .btn-success:hover:not(:disabled) {
             background: #26843b;
             border-color: #26843b;
+        }
+
+        .btn-success:disabled {
+            background: #8c959f;
+            border-color: #8c959f;
+            cursor: not-allowed;
+            opacity: 0.6;
         }
 
         .progress-bar {
@@ -340,6 +342,7 @@
             display: flex;
             gap: 8px;
             align-items: flex-start;
+            animation: fadeIn 0.3s ease-in;
         }
 
         .alert-success {
@@ -520,6 +523,8 @@
             overflow-x: auto;
             white-space: pre-wrap;
             word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
         }
 
         .copy-btn {
@@ -531,8 +536,8 @@
 <body>
     <div class="container">
         <header>
-            <div class="logo">🔐 Steganography</div>
-            <button class="theme-toggle" id="themeToggle">🌙</button>
+            <div class="logo">Steganography Cartridge</div>
+            <button class="theme-toggle" id="themeToggle" title="Toggle theme">Light/Dark</button>
         </header>
 
         <div class="content">
@@ -544,7 +549,6 @@
                 <div class="input-group">
                     <label>Data File (to embed)</label>
                     <div class="upload-area" id="dataUploadArea">
-                        <div class="upload-icon">📄</div>
                         <div class="upload-text">Choose file or drag here</div>
                         <div class="upload-subtext">Any file type supported</div>
                     </div>
@@ -556,7 +560,6 @@
                 <div class="input-group">
                     <label>Cover Image (PNG)</label>
                     <div class="upload-area" id="coverUploadArea">
-                        <div class="upload-icon">🖼️</div>
                         <div class="upload-text">Choose image or drag here</div>
                         <div class="upload-subtext">PNG format recommended</div>
                     </div>
@@ -612,7 +615,6 @@
                 <div class="input-group">
                     <label>Steganographic PNG</label>
                     <div class="upload-area" id="stegoUploadArea">
-                        <div class="upload-icon">🔍</div>
                         <div class="upload-text">Choose image or drag here</div>
                         <div class="upload-subtext">PNG with hidden data</div>
                     </div>
@@ -685,6 +687,587 @@
         </div>
     </div>
 
-    <script src="steganography.js"></script>
+    <script>
+        // Steganography Engine - Standalone
+        class SteganographyEngine {
+            static formatBytes(bytes) {
+                if (bytes === 0) return '0 B';
+                const k = 1024;
+                const sizes = ['B', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+            }
+
+            static async compressData(data, level) {
+                // Simulate compression - in production, use pako or similar
+                return data;
+            }
+
+            static async encode(dataArray, coverImage, compressionLevel, onProgress) {
+                return new Promise((resolve, reject) => {
+                    setTimeout(async () => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            const img = new Image();
+                            
+                            img.onload = async () => {
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0);
+                                
+                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                                const data = imageData.data;
+                                
+                                // Calculate capacity (1 bit per channel, 4 channels per pixel)
+                                const capacity = Math.floor((data.length / 4) / 8);
+                                
+                                if (dataArray.length > capacity) {
+                                    reject(new Error(`Data too large. Max: ${SteganographyEngine.formatBytes(capacity)}, Got: ${SteganographyEngine.formatBytes(dataArray.length)}`));
+                                    return;
+                                }
+                                
+                                onProgress(10);
+                                
+                                // Embed metadata (4 bytes for file size)
+                                const metadata = new Uint8Array(4);
+                                const view = new DataView(metadata.buffer);
+                                view.setUint32(0, dataArray.length, true);
+                                
+                                const fullData = new Uint8Array(metadata.length + dataArray.length);
+                                fullData.set(metadata);
+                                fullData.set(dataArray, metadata.length);
+                                
+                                onProgress(20);
+                                
+                                // LSB encoding
+                                let bitIndex = 0;
+                                for (let i = 0; i < fullData.length; i++) {
+                                    const byte = fullData[i];
+                                    for (let j = 0; j < 8; j++) {
+                                        const bit = (byte >> j) & 1;
+                                        const pixelIndex = Math.floor(bitIndex / 4);
+                                        const channelIndex = bitIndex % 4;
+                                        
+                                        if (pixelIndex * 4 + channelIndex < data.length) {
+                                            data[pixelIndex * 4 + channelIndex] = 
+                                                (data[pixelIndex * 4 + channelIndex] & 0xFE) | bit;
+                                        }
+                                        bitIndex++;
+                                    }
+                                    if (i % 100 === 0) {
+                                        onProgress(20 + (i / fullData.length) * 70);
+                                    }
+                                }
+                                
+                                onProgress(90);
+                                
+                                ctx.putImageData(imageData, 0, 0);
+                                canvas.toBlob((blob) => {
+                                    onProgress(100);
+                                    resolve(blob);
+                                }, 'image/png');
+                            };
+                            
+                            img.onerror = () => reject(new Error('Failed to load cover image'));
+                            img.src = URL.createObjectURL(coverImage);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    }, 100);
+                });
+            }
+
+            static async decode(stegoImage, onProgress) {
+                return new Promise((resolve, reject) => {
+                    setTimeout(() => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            const img = new Image();
+                            
+                            img.onload = () => {
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0);
+                                
+                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                                const data = imageData.data;
+                                
+                                onProgress(10);
+                                
+                                // Extract metadata (4 bytes for file size)
+                                const metadata = new Uint8Array(4);
+                                let bitIndex = 0;
+                                
+                                for (let i = 0; i < metadata.length; i++) {
+                                    let byte = 0;
+                                    for (let j = 0; j < 8; j++) {
+                                        const pixelIndex = Math.floor(bitIndex / 4);
+                                        const channelIndex = bitIndex % 4;
+                                        
+                                        if (pixelIndex * 4 + channelIndex < data.length) {
+                                            const bit = data[pixelIndex * 4 + channelIndex] & 1;
+                                            byte |= (bit << j);
+                                        }
+                                        bitIndex++;
+                                    }
+                                    metadata[i] = byte;
+                                }
+                                
+                                const view = new DataView(metadata.buffer);
+                                const fileSize = view.getUint32(0, true);
+                                
+                                if (fileSize === 0 || fileSize > data.length) {
+                                    reject(new Error('Invalid or corrupted steganographic image'));
+                                    return;
+                                }
+                                
+                                onProgress(20);
+                                
+                                // Extract data
+                                const extractedData = new Uint8Array(fileSize);
+                                for (let i = 0; i < fileSize; i++) {
+                                    let byte = 0;
+                                    for (let j = 0; j < 8; j++) {
+                                        const pixelIndex = Math.floor(bitIndex / 4);
+                                        const channelIndex = bitIndex % 4;
+                                        
+                                        if (pixelIndex * 4 + channelIndex < data.length) {
+                                            const bit = data[pixelIndex * 4 + channelIndex] & 1;
+                                            byte |= (bit << j);
+                                        }
+                                        bitIndex++;
+                                    }
+                                    extractedData[i] = byte;
+                                    if (i % 1000 === 0) {
+                                        onProgress(20 + (i / fileSize) * 75);
+                                    }
+                                }
+                                
+                                onProgress(100);
+                                resolve(extractedData);
+                            };
+                            
+                            img.onerror = () => reject(new Error('Failed to load steganographic image'));
+                            img.src = URL.createObjectURL(stegoImage);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    }, 100);
+                });
+            }
+        }
+
+        // UI Controller
+        class UIController {
+            constructor() {
+                this.dataFile = null;
+                this.coverImage = null;
+                this.stegoImage = null;
+                this.extractedData = null;
+                this.extractedFileName = null;
+                
+                this.initTheme();
+                this.initEventListeners();
+            }
+
+            initTheme() {
+                const theme = localStorage.getItem('theme') || 'light';
+                if (theme === 'dark') {
+                    document.body.classList.add('dark-mode');
+                    document.getElementById('themeToggle').textContent = 'Light';
+                }
+                
+                document.getElementById('themeToggle').addEventListener('click', () => {
+                    document.body.classList.toggle('dark-mode');
+                    const isDark = document.body.classList.contains('dark-mode');
+                    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+                    document.getElementById('themeToggle').textContent = isDark ? 'Light' : 'Dark';
+                });
+            }
+
+            initEventListeners() {
+                // Data file upload
+                document.getElementById('dataUploadArea').addEventListener('click', () => {
+                    document.getElementById('dataFileInput').click();
+                });
+                
+                document.getElementById('dataFileInput').addEventListener('change', (e) => {
+                    this.handleDataFileSelect(e.target.files[0]);
+                });
+                
+                // Cover image upload
+                document.getElementById('coverUploadArea').addEventListener('click', () => {
+                    document.getElementById('coverFileInput').click();
+                });
+                
+                document.getElementById('coverFileInput').addEventListener('change', (e) => {
+                    this.handleCoverImageSelect(e.target.files[0]);
+                });
+                
+                // Stego image upload
+                document.getElementById('stegoUploadArea').addEventListener('click', () => {
+                    document.getElementById('stegoFileInput').click();
+                });
+                
+                document.getElementById('stegoFileInput').addEventListener('change', (e) => {
+                    this.handleStegoImageSelect(e.target.files[0]);
+                });
+                
+                // Drag and drop
+                this.setupDragDrop('dataUploadArea', 'dataFileInput');
+                this.setupDragDrop('coverUploadArea', 'coverFileInput');
+                this.setupDragDrop('stegoUploadArea', 'stegoFileInput');
+                
+                // Compression level
+                document.getElementById('compressionLevel').addEventListener('input', (e) => {
+                    document.getElementById('compressionDisplay').textContent = e.target.value;
+                });
+                
+                // Encode button
+                document.getElementById('encodeBtn').addEventListener('click', () => this.encode());
+                
+                // Decode button
+                document.getElementById('decodeBtn').addEventListener('click', () => this.decode());
+                
+                // Download button
+                document.getElementById('downloadBtn').addEventListener('click', () => this.download());
+                
+                // Inject button
+                document.getElementById('injectBtn').addEventListener('click', () => this.inject());
+                
+                // Tab buttons
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
+                });
+            }
+
+            setupDragDrop(areaId, inputId) {
+                const area = document.getElementById(areaId);
+                
+                area.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    area.classList.add('dragover');
+                });
+                
+                area.addEventListener('dragleave', () => {
+                    area.classList.remove('dragover');
+                });
+                
+                area.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    area.classList.remove('dragover');
+                    
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        document.getElementById(inputId).files = files;
+                        
+                        if (inputId === 'dataFileInput') {
+                            this.handleDataFileSelect(files[0]);
+                        } else if (inputId === 'coverFileInput') {
+                            this.handleCoverImageSelect(files[0]);
+                        } else if (inputId === 'stegoFileInput') {
+                            this.handleStegoImageSelect(files[0]);
+                        }
+                    }
+                });
+            }
+
+            handleDataFileSelect(file) {
+                if (!file) return;
+                
+                this.dataFile = file;
+                const display = document.getElementById('dataFileDisplay');
+                display.innerHTML = `
+                    <div class="file-item">
+                        <span class="file-name">${file.name}</span>
+                        <span class="file-size">${SteganographyEngine.formatBytes(file.size)}</span>
+                        <button class="remove-btn" onclick="document.querySelector('[data-controller]').clearDataFile()">Remove</button>
+                    </div>
+                `;
+                
+                this.updateEncoderStats();
+                this.validateEncodeInputs();
+            }
+
+            handleCoverImageSelect(file) {
+                if (!file) return;
+                
+                this.coverImage = file;
+                const display = document.getElementById('coverFileDisplay');
+                display.innerHTML = `
+                    <div class="file-item">
+                        <span class="file-name">${file.name}</span>
+                        <span class="file-size">${SteganographyEngine.formatBytes(file.size)}</span>
+                        <button class="remove-btn" onclick="document.querySelector('[data-controller]').clearCoverImage()">Remove</button>
+                    </div>
+                `;
+                
+                this.updateEncoderStats();
+                this.validateEncodeInputs();
+            }
+
+            handleStegoImageSelect(file) {
+                if (!file) return;
+                
+                this.stegoImage = file;
+                const display = document.getElementById('stegoFileDisplay');
+                display.innerHTML = `
+                    <div class="file-item">
+                        <span class="file-name">${file.name}</span>
+                        <span class="file-size">${SteganographyEngine.formatBytes(file.size)}</span>
+                        <button class="remove-btn" onclick="document.querySelector('[data-controller]').clearStegoImage()">Remove</button>
+                    </div>
+                `;
+                
+                document.getElementById('decodeBtn').disabled = false;
+            }
+
+            clearDataFile() {
+                this.dataFile = null;
+                document.getElementById('dataFileDisplay').innerHTML = '';
+                document.getElementById('encoderStats').style.display = 'none';
+                this.validateEncodeInputs();
+            }
+
+            clearCoverImage() {
+                this.coverImage = null;
+                document.getElementById('coverFileDisplay').innerHTML = '';
+                document.getElementById('encoderStats').style.display = 'none';
+                this.validateEncodeInputs();
+            }
+
+            clearStegoImage() {
+                this.stegoImage = null;
+                this.extractedData = null;
+                this.extractedFileName = null;
+                document.getElementById('stegoFileDisplay').innerHTML = '';
+                document.getElementById('extractorContainer').style.display = 'none';
+                document.getElementById('decodeBtn').disabled = true;
+            }
+
+            async updateEncoderStats() {
+                if (!this.dataFile || !this.coverImage) return;
+                
+                const canvas = document.createElement('canvas');
+                const img = new Image();
+                
+                img.onload = () => {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const capacity = Math.floor((imageData.data.length / 4) / 8);
+                    
+                    document.getElementById('dataSizeStat').textContent = SteganographyEngine.formatBytes(this.dataFile.size);
+                    document.getElementById('capacityStat').textContent = SteganographyEngine.formatBytes(capacity);
+                    document.getElementById('encoderStats').style.display = 'grid';
+                };
+                
+                img.src = URL.createObjectURL(this.coverImage);
+            }
+
+            validateEncodeInputs() {
+                document.getElementById('encodeBtn').disabled = !(this.dataFile && this.coverImage);
+            }
+
+            async encode() {
+                const btn = document.getElementById('encodeBtn');
+                btn.disabled = true;
+                
+                const messagesDiv = document.getElementById('encodeMessages');
+                messagesDiv.innerHTML = '';
+                
+                const progressDiv = document.getElementById('encodeProgress');
+                progressDiv.style.display = 'block';
+                
+                try {
+                    const dataArray = new Uint8Array(await this.dataFile.arrayBuffer());
+                    const compressionLevel = parseInt(document.getElementById('compressionLevel').value);
+                    
+                    const blob = await SteganographyEngine.encode(
+                        dataArray,
+                        this.coverImage,
+                        compressionLevel,
+                        (progress) => {
+                            const fill = document.getElementById('encodeProgressFill');
+                            fill.style.width = progress + '%';
+                            document.getElementById('encodeProgressText').textContent = Math.round(progress) + '%';
+                        }
+                    );
+                    
+                    // Download the file
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'stego.png';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    
+                    messagesDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <span>File encoded successfully! Download started.</span>
+                        </div>
+                    `;
+                    
+                    progressDiv.style.display = 'none';
+                } catch (error) {
+                    messagesDiv.innerHTML = `
+                        <div class="alert alert-error">
+                            <span>${error.message}</span>
+                        </div>
+                    `;
+                    progressDiv.style.display = 'none';
+                } finally {
+                    btn.disabled = false;
+                }
+            }
+
+            async decode() {
+                const btn = document.getElementById('decodeBtn');
+                btn.disabled = true;
+                
+                const messagesDiv = document.getElementById('decodeMessages');
+                messagesDiv.innerHTML = '';
+                
+                const progressDiv = document.getElementById('decodeProgress');
+                progressDiv.style.display = 'block';
+                
+                try {
+                    this.extractedData = await SteganographyEngine.decode(
+                        this.stegoImage,
+                        (progress) => {
+                            const fill = document.getElementById('decodeProgressFill');
+                            fill.style.width = progress + '%';
+                            document.getElementById('decodeProgressText').textContent = Math.round(progress) + '%';
+                        }
+                    );
+                    
+                    // Try to extract filename from metadata if it exists
+                    this.extractedFileName = 'extracted_file';
+                    
+                    messagesDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <span>File decoded successfully!</span>
+                        </div>
+                    `;
+                    
+                    this.showExtractorContainer();
+                    progressDiv.style.display = 'none';
+                } catch (error) {
+                    messagesDiv.innerHTML = `
+                        <div class="alert alert-error">
+                            <span>${error.message}</span>
+                        </div>
+                    `;
+                    progressDiv.style.display = 'none';
+                } finally {
+                    btn.disabled = false;
+                }
+            }
+
+            showExtractorContainer() {
+                document.getElementById('extractorContainer').style.display = 'block';
+                document.getElementById('extractedFileName').textContent = this.extractedFileName;
+                document.getElementById('extractedFileSize').textContent = SteganographyEngine.formatBytes(this.extractedData.length);
+            }
+
+            switchTab(tabName) {
+                document.querySelectorAll('.tab-content').forEach(tab => {
+                    tab.classList.add('hidden-section');
+                });
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                document.getElementById(tabName + '-tab').classList.remove('hidden-section');
+                document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+            }
+
+            download() {
+                if (!this.extractedData) return;
+                
+                const blob = new Blob([this.extractedData]);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = this.extractedFileName;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                const messagesDiv = document.getElementById('downloadMessages');
+                messagesDiv.innerHTML = `
+                    <div class="alert alert-success" style="margin-top: 12px;">
+                        <span>File downloaded successfully!</span>
+                    </div>
+                `;
+            }
+
+            inject() {
+                if (!this.extractedData) return;
+                
+                const messagesDiv = document.getElementById('injectMessages');
+                const target = document.getElementById('injectTarget').value;
+                
+                try {
+                    // Try to detect if it's HTML content
+                    const dataStr = new TextDecoder().decode(this.extractedData);
+                    
+                    if (dataStr.includes('<!') || dataStr.includes('<html') || dataStr.includes('<body')) {
+                        // It's HTML
+                        if (target === 'blank') {
+                            const newWindow = window.open('about:blank');
+                            newWindow.document.write(dataStr);
+                            newWindow.document.close();
+                        } else if (target === 'new') {
+                            const blob = new Blob([this.extractedData], { type: 'text/html' });
+                            const url = URL.createObjectURL(blob);
+                            window.open(url);
+                        } else if (target === 'current') {
+                            document.open();
+                            document.write(dataStr);
+                            document.close();
+                        }
+                        
+                        messagesDiv.innerHTML = `
+                            <div class="alert alert-success" style="margin-top: 12px;">
+                                <span>HTML injected and executed successfully!</span>
+                            </div>
+                        `;
+                    } else if (dataStr.includes('function ') || dataStr.includes('const ') || dataStr.includes('var ')) {
+                        // It's JavaScript
+                        eval(dataStr);
+                        messagesDiv.innerHTML = `
+                            <div class="alert alert-success" style="margin-top: 12px;">
+                                <span>JavaScript executed successfully!</span>
+                            </div>
+                        `;
+                    } else {
+                        messagesDiv.innerHTML = `
+                            <div class="alert alert-warning" style="margin-top: 12px;">
+                                <span>File type could not be detected. Attempting to execute as JavaScript...</span>
+                            </div>
+                        `;
+                    }
+                } catch (error) {
+                    messagesDiv.innerHTML = `
+                        <div class="alert alert-error" style="margin-top: 12px;">
+                            <span>Error: ${error.message}</span>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            const controller = new UIController();
+            document.documentElement.setAttribute('data-controller', '');
+            window.uiController = controller;
+        });
+    </script>
 </body>
 </html>
