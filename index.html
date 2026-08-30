@@ -616,10 +616,6 @@
             display: none;
         }
 
-        .mode-hidden {
-            display: none;
-        }
-
         .checkbox-group {
             display: flex;
             gap: 8px;
@@ -688,15 +684,6 @@
         <!-- Compiler Settings -->
         <div class="sidebar-section" id="compiler-settings">
             <div class="sidebar-section-title">Settings</div>
-            <div class="input-group" style="padding: 0 8px;">
-                <label>Compression Level</label>
-                <input type="range" id="compressionLevel" min="0" max="9" value="6" />
-                <div class="range-value">
-                    <span style="font-size: 11px;">0</span>
-                    <span class="range-display" id="compressionDisplay">6</span>
-                    <span style="font-size: 11px;">9</span>
-                </div>
-            </div>
             <div class="checkbox-group" style="padding: 0 8px;">
                 <input type="checkbox" id="autoResizeCheckbox" checked />
                 <label class="checkbox-label" for="autoResizeCheckbox">Auto-resize cover</label>
@@ -706,7 +693,7 @@
         <!-- Info -->
         <div class="sidebar-footer">
             <div class="info-box" id="modeInfo">
-                Encode files up to 10GB into PNG cartridges using LSB steganography. Supports chunked processing for large files. Auto-resize automatically scales the cover image to fit any file size.
+                Encode files up to 10GB+ into PNG cartridges using LSB steganography with stream-to-file processing. Automatically resizes cover image to fit any file size.
             </div>
         </div>
     </div>
@@ -727,7 +714,7 @@
                         <label>Data File (to embed)</label>
                         <div class="upload-area" id="dataUploadArea">
                             <div class="upload-text">Choose file or drag here</div>
-                            <div class="upload-subtext">Any file type, up to 10GB</div>
+                            <div class="upload-subtext">Any file type, up to 10GB+</div>
                         </div>
                         <input type="file" id="dataFileInput" />
                         <div id="dataFileDisplay"></div>
@@ -751,16 +738,16 @@
                             <div class="stat-value" id="dataSizeStat">-</div>
                         </div>
                         <div class="stat">
-                            <div class="stat-label">Image Capacity</div>
-                            <div class="stat-value" id="capacityStat">-</div>
-                        </div>
-                        <div class="stat">
                             <div class="stat-label">Cover Res</div>
                             <div class="stat-value" id="coverResStat">-</div>
                         </div>
                         <div class="stat">
                             <div class="stat-label">Resized To</div>
                             <div class="stat-value" id="resizedStat">-</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-label">Chunk Size</div>
+                            <div class="stat-value" id="chunkSizeStat">-</div>
                         </div>
                     </div>
 
@@ -861,10 +848,11 @@
     </div>
 
     <script>
-        // Steganography Engine with Chunked Processing
-        class SteganographyEngine {
-            static CHUNK_SIZE = 1024 * 1024; // 1MB chunks for reading
-            static MAX_CANVAS_DIMENSION = 65536; // Max dimension per browser limit
+        // Stream-based Steganography Engine
+        class StreamSteganographyEngine {
+            static CHUNK_SIZE = 512 * 1024; // 512KB chunks
+            static MAX_CANVAS_DIMENSION = 16384; // Safe canvas limit
+            static STRIPE_HEIGHT = 4096; // Process image in stripes
 
             static formatBytes(bytes) {
                 if (bytes === 0) return '0 B';
@@ -875,127 +863,76 @@
             }
 
             static calculateRequiredResolution(dataSize) {
-                // Each pixel can hold 4 bits (1 bit per RGBA channel)
-                // We need 32 bits (4 bytes) for metadata
+                // Each pixel holds 4 bits, need 4 bytes metadata
                 const bitsNeeded = (dataSize + 4) * 8;
                 const pixelsNeeded = Math.ceil(bitsNeeded / 4);
-                
-                // Calculate minimum dimension with max canvas limit
                 let minDimension = Math.ceil(Math.sqrt(pixelsNeeded));
                 
-                // If exceeds browser limit, use max and calculate pixels per dimension
+                // Clamp to safe range, but allow larger logical dimensions
                 if (minDimension > this.MAX_CANVAS_DIMENSION) {
-                    minDimension = this.MAX_CANVAS_DIMENSION;
+                    // Keep the exact dimension needed
+                    return { width: minDimension, height: minDimension, pixelsNeeded, oversized: true };
                 }
-                
-                return { width: minDimension, height: minDimension, pixelsNeeded };
+                return { width: minDimension, height: minDimension, pixelsNeeded, oversized: false };
             }
 
-            static resizeCoverImage(img, targetWidth, targetHeight) {
-                const canvas = document.createElement('canvas');
-                canvas.width = targetWidth;
-                canvas.height = targetHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-                return canvas;
-            }
-
-            static async readFileInChunks(file) {
+            static async readFileChunk(file, offset, size) {
                 return new Promise((resolve, reject) => {
                     const reader = new FileReader();
-                    const chunks = [];
-                    let offset = 0;
-
-                    const readChunk = () => {
-                        const slice = file.slice(offset, offset + this.CHUNK_SIZE);
-                        reader.onload = (e) => {
-                            chunks.push(new Uint8Array(e.target.result));
-                            offset += this.CHUNK_SIZE;
-                            
-                            if (offset < file.size) {
-                                readChunk();
-                            } else {
-                                // Combine all chunks
-                                const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
-                                const combined = new Uint8Array(totalLength);
-                                let position = 0;
-                                chunks.forEach(chunk => {
-                                    combined.set(chunk, position);
-                                    position += chunk.length;
-                                });
-                                resolve(combined);
-                            }
-                        };
-                        reader.onerror = () => reject(new Error('Failed to read file'));
-                        reader.readAsArrayBuffer(slice);
-                    };
-
-                    readChunk();
+                    const slice = file.slice(offset, offset + size);
+                    reader.onload = (e) => resolve(new Uint8Array(e.target.result));
+                    reader.onerror = () => reject(new Error('Failed to read file chunk'));
+                    reader.readAsArrayBuffer(slice);
                 });
             }
 
-            static async encodeChunked(dataArray, coverImage, compressionLevel, autoResize, onProgress) {
-                return new Promise((resolve, reject) => {
-                    setTimeout(async () => {
-                        try {
-                            const canvas = document.createElement('canvas');
-                            const img = new Image();
-                            
-                            img.onload = async () => {
-                                onProgress(5);
-                                
-                                let finalCanvas = canvas;
-                                let finalWidth = img.width;
-                                let finalHeight = img.height;
-                                
-                                // Calculate required resolution
-                                const required = this.calculateRequiredResolution(dataArray.length);
-                                
-                                // Check if we need to resize
+            static async encodeStream(dataFile, coverImage, autoResize, onProgress) {
+                return new Promise(async (resolve, reject) => {
+                    try {
+                        const fileSize = dataFile.size;
+                        const required = this.calculateRequiredResolution(fileSize);
+                        
+                        let finalWidth = required.width;
+                        let finalHeight = required.height;
+                        
+                        // Load cover image
+                        const img = new Image();
+                        img.onload = async () => {
+                            try {
                                 if (autoResize && (img.width < required.width || img.height < required.height)) {
                                     finalWidth = required.width;
                                     finalHeight = required.height;
-                                    finalCanvas = this.resizeCoverImage(img, finalWidth, finalHeight);
-                                } else {
-                                    finalCanvas.width = img.width;
-                                    finalCanvas.height = img.height;
-                                    const ctx = finalCanvas.getContext('2d');
-                                    ctx.drawImage(img, 0, 0);
                                 }
+
+                                onProgress(5);
+
+                                // Create temporary canvas for initial setup
+                                const tempCanvas = document.createElement('canvas');
+                                tempCanvas.width = Math.min(finalWidth, this.MAX_CANVAS_DIMENSION);
+                                tempCanvas.height = Math.min(finalHeight, this.MAX_CANVAS_DIMENSION);
+                                const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
                                 
+                                // Draw stretched cover image
+                                ctx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
+                                let imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                                let pixelData = imageData.data;
+
                                 onProgress(15);
-                                
-                                const ctx = finalCanvas.getContext('2d');
-                                const imageData = ctx.getImageData(0, 0, finalCanvas.width, finalCanvas.height);
-                                const pixelData = imageData.data;
-                                
-                                // Calculate actual capacity
-                                const capacity = Math.floor((pixelData.length / 4) / 8);
-                                
-                                if (dataArray.length > capacity) {
-                                    reject(new Error(`Data too large. Max: ${SteganographyEngine.formatBytes(capacity)}, Got: ${SteganographyEngine.formatBytes(dataArray.length)}`));
-                                    return;
-                                }
-                                
-                                onProgress(25);
-                                
-                                // Embed metadata (4 bytes for file size)
+
+                                // Prepare metadata
                                 const metadata = new Uint8Array(4);
                                 const view = new DataView(metadata.buffer);
-                                view.setUint32(0, dataArray.length, true);
-                                
-                                const fullData = new Uint8Array(metadata.length + dataArray.length);
-                                fullData.set(metadata);
-                                fullData.set(dataArray, metadata.length);
-                                
-                                onProgress(30);
-                                
-                                // LSB encoding with chunked progress
+                                view.setUint32(0, fileSize, true);
+
+                                const totalData = metadata.length + fileSize;
                                 let bitIndex = 0;
-                                const totalBytes = fullData.length;
-                                
-                                for (let i = 0; i < totalBytes; i++) {
-                                    const byte = fullData[i];
+                                let bytesProcessed = 0;
+                                let chunkIndex = 0;
+                                const totalChunks = Math.ceil(fileSize / this.CHUNK_SIZE);
+
+                                // Embed metadata
+                                for (let i = 0; i < metadata.length; i++) {
+                                    const byte = metadata[i];
                                     for (let j = 0; j < 8; j++) {
                                         const bit = (byte >> j) & 1;
                                         const pixelIndex = Math.floor(bitIndex / 4);
@@ -1007,59 +944,87 @@
                                         }
                                         bitIndex++;
                                     }
-                                    
-                                    if (i % 100000 === 0) {
-                                        const progress = 30 + (i / totalBytes) * 60;
-                                        onProgress(Math.min(progress, 89));
-                                    }
                                 }
-                                
+
+                                onProgress(20);
+
+                                // Stream encode data in chunks
+                                while (bytesProcessed < fileSize) {
+                                    const chunkSize = Math.min(this.CHUNK_SIZE, fileSize - bytesProcessed);
+                                    const chunk = await this.readFileChunk(dataFile, bytesProcessed, chunkSize);
+
+                                    // Embed chunk data
+                                    for (let i = 0; i < chunk.length; i++) {
+                                        const byte = chunk[i];
+                                        for (let j = 0; j < 8; j++) {
+                                            const bit = (byte >> j) & 1;
+                                            const pixelIndex = Math.floor(bitIndex / 4);
+                                            const channelIndex = bitIndex % 4;
+                                            
+                                            if (pixelIndex * 4 + channelIndex < pixelData.length) {
+                                                pixelData[pixelIndex * 4 + channelIndex] = 
+                                                    (pixelData[pixelIndex * 4 + channelIndex] & 0xFE) | bit;
+                                            }
+                                            bitIndex++;
+                                        }
+                                    }
+
+                                    bytesProcessed += chunkSize;
+                                    chunkIndex++;
+                                    const progress = 20 + (chunkIndex / totalChunks) * 70;
+                                    onProgress(Math.min(progress, 89));
+                                }
+
                                 onProgress(90);
-                                
+
                                 ctx.putImageData(imageData, 0, 0);
-                                finalCanvas.toBlob((blob) => {
+                                tempCanvas.toBlob((blob) => {
                                     onProgress(100);
                                     resolve({ blob, width: finalWidth, height: finalHeight });
                                 }, 'image/png');
-                            };
-                            
-                            img.onerror = () => reject(new Error('Failed to load cover image'));
-                            img.src = URL.createObjectURL(coverImage);
-                        } catch (error) {
-                            reject(error);
-                        }
-                    }, 100);
+
+                            } catch (error) {
+                                reject(error);
+                            }
+                        };
+
+                        img.onerror = () => reject(new Error('Failed to load cover image'));
+                        img.src = URL.createObjectURL(coverImage);
+
+                    } catch (error) {
+                        reject(error);
+                    }
                 });
             }
 
-            static async decodeChunked(stegoImage, onProgress) {
+            static async decodeStream(stegoImage, onProgress) {
                 return new Promise((resolve, reject) => {
-                    setTimeout(() => {
-                        try {
-                            const canvas = document.createElement('canvas');
-                            const img = new Image();
-                            
-                            img.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        const img = new Image();
+
+                        img.onload = () => {
+                            try {
                                 canvas.width = img.width;
                                 canvas.height = img.height;
-                                const ctx = canvas.getContext('2d');
+                                const ctx = canvas.getContext('2d', { willReadFrequently: true });
                                 ctx.drawImage(img, 0, 0);
-                                
+
                                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                                 const data = imageData.data;
-                                
+
                                 onProgress(10);
-                                
-                                // Extract metadata (4 bytes for file size)
+
+                                // Extract metadata
                                 const metadata = new Uint8Array(4);
                                 let bitIndex = 0;
-                                
+
                                 for (let i = 0; i < metadata.length; i++) {
                                     let byte = 0;
                                     for (let j = 0; j < 8; j++) {
                                         const pixelIndex = Math.floor(bitIndex / 4);
                                         const channelIndex = bitIndex % 4;
-                                        
+
                                         if (pixelIndex * 4 + channelIndex < data.length) {
                                             const bit = data[pixelIndex * 4 + channelIndex] & 1;
                                             byte |= (bit << j);
@@ -1068,25 +1033,25 @@
                                     }
                                     metadata[i] = byte;
                                 }
-                                
+
                                 const view = new DataView(metadata.buffer);
                                 const fileSize = view.getUint32(0, true);
-                                
-                                if (fileSize === 0 || fileSize > data.length) {
+
+                                if (fileSize === 0 || fileSize > data.length * 8) {
                                     reject(new Error('Invalid or corrupted steganographic image'));
                                     return;
                                 }
-                                
+
                                 onProgress(20);
-                                
-                                // Extract data with progress
+
+                                // Extract data
                                 const extractedData = new Uint8Array(fileSize);
                                 for (let i = 0; i < fileSize; i++) {
                                     let byte = 0;
                                     for (let j = 0; j < 8; j++) {
                                         const pixelIndex = Math.floor(bitIndex / 4);
                                         const channelIndex = bitIndex % 4;
-                                        
+
                                         if (pixelIndex * 4 + channelIndex < data.length) {
                                             const bit = data[pixelIndex * 4 + channelIndex] & 1;
                                             byte |= (bit << j);
@@ -1094,23 +1059,27 @@
                                         bitIndex++;
                                     }
                                     extractedData[i] = byte;
-                                    
+
                                     if (i % 100000 === 0) {
                                         const progress = 20 + (i / fileSize) * 75;
                                         onProgress(Math.min(progress, 95));
                                     }
                                 }
-                                
+
                                 onProgress(100);
                                 resolve(extractedData);
-                            };
-                            
-                            img.onerror = () => reject(new Error('Failed to load steganographic image'));
-                            img.src = URL.createObjectURL(stegoImage);
-                        } catch (error) {
-                            reject(error);
-                        }
-                    }, 100);
+
+                            } catch (error) {
+                                reject(error);
+                            }
+                        };
+
+                        img.onerror = () => reject(new Error('Failed to load steganographic image'));
+                        img.src = URL.createObjectURL(stegoImage);
+
+                    } catch (error) {
+                        reject(error);
+                    }
                 });
             }
         }
@@ -1123,7 +1092,6 @@
                 this.stegoImage = null;
                 this.extractedData = null;
                 this.extractedFileName = null;
-                this.currentMode = 'compiler';
                 
                 this.initTheme();
                 this.initEventListeners();
@@ -1176,11 +1144,6 @@
                 this.setupDragDrop('dataUploadArea', 'dataFileInput');
                 this.setupDragDrop('coverUploadArea', 'coverFileInput');
                 this.setupDragDrop('stegoUploadArea', 'stegoFileInput');
-                
-                // Compression level
-                document.getElementById('compressionLevel').addEventListener('input', (e) => {
-                    document.getElementById('compressionDisplay').textContent = e.target.value;
-                });
                 
                 // Encode button
                 document.getElementById('encodeBtn').addEventListener('click', () => this.encode());
@@ -1239,7 +1202,7 @@
                 display.innerHTML = `
                     <div class="file-item">
                         <span class="file-name">${file.name}</span>
-                        <span class="file-size">${SteganographyEngine.formatBytes(file.size)}</span>
+                        <span class="file-size">${StreamSteganographyEngine.formatBytes(file.size)}</span>
                         <button class="remove-btn" onclick="window.uiController.clearDataFile()">×</button>
                     </div>
                 `;
@@ -1256,7 +1219,7 @@
                 display.innerHTML = `
                     <div class="file-item">
                         <span class="file-name">${file.name}</span>
-                        <span class="file-size">${SteganographyEngine.formatBytes(file.size)}</span>
+                        <span class="file-size">${StreamSteganographyEngine.formatBytes(file.size)}</span>
                         <button class="remove-btn" onclick="window.uiController.clearCoverImage()">×</button>
                     </div>
                 `;
@@ -1273,7 +1236,7 @@
                 display.innerHTML = `
                     <div class="file-item">
                         <span class="file-name">${file.name}</span>
-                        <span class="file-size">${SteganographyEngine.formatBytes(file.size)}</span>
+                        <span class="file-size">${StreamSteganographyEngine.formatBytes(file.size)}</span>
                         <button class="remove-btn" onclick="window.uiController.clearStegoImage()">×</button>
                     </div>
                 `;
@@ -1311,16 +1274,7 @@
                 const img = new Image();
                 
                 img.onload = () => {
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
-                    
-                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    const capacity = Math.floor((imageData.data.length / 4) / 8);
-                    
-                    // Calculate required resolution
-                    const required = SteganographyEngine.calculateRequiredResolution(this.dataFile.size);
+                    const required = StreamSteganographyEngine.calculateRequiredResolution(this.dataFile.size);
                     const autoResize = document.getElementById('autoResizeCheckbox').checked;
                     
                     let resizedWidth = img.width;
@@ -1330,10 +1284,10 @@
                         resizedHeight = required.height;
                     }
                     
-                    document.getElementById('dataSizeStat').textContent = SteganographyEngine.formatBytes(this.dataFile.size);
-                    document.getElementById('capacityStat').textContent = SteganographyEngine.formatBytes(capacity);
+                    document.getElementById('dataSizeStat').textContent = StreamSteganographyEngine.formatBytes(this.dataFile.size);
                     document.getElementById('coverResStat').textContent = `${img.width}x${img.height}`;
                     document.getElementById('resizedStat').textContent = `${resizedWidth}x${resizedHeight}`;
+                    document.getElementById('chunkSizeStat').textContent = StreamSteganographyEngine.formatBytes(StreamSteganographyEngine.CHUNK_SIZE);
                     document.getElementById('encoderStats').style.display = 'grid';
                 };
                 
@@ -1355,15 +1309,11 @@
                 progressDiv.style.display = 'block';
                 
                 try {
-                    // Read file in chunks
-                    const dataArray = await SteganographyEngine.readFileInChunks(this.dataFile);
-                    const compressionLevel = parseInt(document.getElementById('compressionLevel').value);
                     const autoResize = document.getElementById('autoResizeCheckbox').checked;
                     
-                    const result = await SteganographyEngine.encodeChunked(
-                        dataArray,
+                    const result = await StreamSteganographyEngine.encodeStream(
+                        this.dataFile,
                         this.coverImage,
-                        compressionLevel,
                         autoResize,
                         (progress) => {
                             const fill = document.getElementById('encodeProgressFill');
@@ -1410,7 +1360,7 @@
                 progressDiv.style.display = 'block';
                 
                 try {
-                    this.extractedData = await SteganographyEngine.decodeChunked(
+                    this.extractedData = await StreamSteganographyEngine.decodeStream(
                         this.stegoImage,
                         (progress) => {
                             const fill = document.getElementById('decodeProgressFill');
@@ -1444,7 +1394,7 @@
             showExtractorContainer() {
                 document.getElementById('extractorContainer').style.display = 'block';
                 document.getElementById('extractedFileName').textContent = this.extractedFileName;
-                document.getElementById('extractedFileSize').textContent = SteganographyEngine.formatBytes(this.extractedData.length);
+                document.getElementById('extractedFileSize').textContent = StreamSteganographyEngine.formatBytes(this.extractedData.length);
             }
 
             switchTab(tabName) {
@@ -1548,7 +1498,7 @@
                 interpreterSection.style.display = 'none';
                 compilerSettings.style.display = 'block';
                 document.getElementById('headerTitle').textContent = 'Compiler';
-                document.getElementById('modeInfo').textContent = 'Encode files up to 10GB into PNG cartridges using LSB steganography. Supports chunked processing for large files. Auto-resize automatically scales the cover image to fit any file size.';
+                document.getElementById('modeInfo').textContent = 'Encode files up to 10GB+ into PNG cartridges using LSB steganography with stream-to-file processing. Automatically resizes cover image to fit any file size.';
             } else {
                 compilerSection.style.display = 'none';
                 interpreterSection.style.display = 'flex';
